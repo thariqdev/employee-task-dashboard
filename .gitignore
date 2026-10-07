@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+
+# Environment files (copy from .env.example)
+.env
+.env.local
+.env.*.local
+
+# SQLite database files
+*.db
+*.db-journal
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

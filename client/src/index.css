@@ -1,0 +1,32 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-page: #fafafa;
+  --color-surface: #ffffff;
+  --color-line: #e5e7eb;
+  --color-ink: #111827;
+  --color-muted: #6b7280;
+  --color-accent: #2f54eb;
+  --color-accent-hover: #2444c8;
+  --color-accent-tint: #eef2ff;
+  --color-danger: #dc2626;
+  --color-danger-tint: #fef2f2;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Overdue task rows get a red bar on the left edge. */
+tr.is-overdue > td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+
+body {
+  @apply bg-page text-ink antialiased;
+  font-variant-numeric: tabular-nums;
+}
