@@ -33,7 +33,7 @@ export default function ConfirmDeleteTaskModal({ task, onClose }: Props) {
         </p>
       </div>
 
-      <div className="mt-6 flex justify-end gap-2">
+      <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button
           type="button"
           autoFocus

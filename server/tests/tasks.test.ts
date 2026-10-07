@@ -189,3 +189,85 @@ describe('tasks API', () => {
     expect((await request(app).delete(`/api/tasks/${body.data.id}`).set(auth)).status).toBe(404);
   });
 });
+
+describe('tasks API: sorting', () => {
+  const titlesOf = async (query: string) => {
+    const res = await request(app).get(`/api/tasks?${query}`).set(auth);
+    expect(res.status).toBe(200);
+    return res.body.data.map((t: { title: string }) => t.title);
+  };
+
+  beforeEach(async () => {
+    const ben = await prisma.employee.create({
+      data: { name: 'ben Test', email: 'ben@example.com', position: 'Dev', department: 'Engineering' },
+    });
+    const task = (title: string, priority: 'LOW' | 'MEDIUM' | 'HIGH', status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED', due: number, assigneeId: number | null) =>
+      prisma.task.create({ data: { title, priority, status, dueDate: new Date(daysFromNow(due)), assigneeId } });
+    await task('delta', 'LOW', 'COMPLETED', 4, employeeId);
+    await task('Alpha', 'HIGH', 'PENDING', 2, ben.id);
+    await task('charlie', 'MEDIUM', 'IN_PROGRESS', 3, null);
+    await task('Bravo 10', 'HIGH', 'IN_PROGRESS', 1, employeeId);
+    await task('Bravo 2', 'LOW', 'PENDING', 5, null);
+  });
+
+  it('sorts by due date, soonest first, and reverses it', async () => {
+    expect(await titlesOf('sort=dueDate')).toEqual(['Bravo 10', 'Alpha', 'charlie', 'delta', 'Bravo 2']);
+    expect(await titlesOf('sort=dueDate&order=desc')).toEqual(['Bravo 2', 'delta', 'charlie', 'Alpha', 'Bravo 10']);
+  });
+
+  it('keeps due date, soonest first, as the default', async () => {
+    expect(await titlesOf('')).toEqual(await titlesOf('sort=dueDate&order=asc'));
+  });
+
+  it('sorts titles ignoring case, with numbers in numeric order', async () => {
+    expect(await titlesOf('sort=title')).toEqual(['Alpha', 'Bravo 2', 'Bravo 10', 'charlie', 'delta']);
+    expect(await titlesOf('sort=title&order=desc')).toEqual(['delta', 'charlie', 'Bravo 10', 'Bravo 2', 'Alpha']);
+  });
+
+  it('sorts priority by meaning (low, medium, high), not alphabetically', async () => {
+    const asc = await titlesOf('sort=priority');
+    expect(asc.slice(0, 2).sort()).toEqual(['Bravo 2', 'delta']); // the two LOW ones
+    expect(asc[2]).toBe('charlie'); // MEDIUM
+    expect(asc.slice(3).sort()).toEqual(['Alpha', 'Bravo 10']); // the two HIGH ones
+    expect((await titlesOf('sort=priority&order=desc'))[0]).toMatch(/Alpha|Bravo 10/);
+  });
+
+  it('sorts status by progress (to do, in progress, done)', async () => {
+    const asc = await titlesOf('sort=status');
+    expect(asc.slice(0, 2).sort()).toEqual(['Alpha', 'Bravo 2']); // PENDING
+    expect(asc.slice(2, 4).sort()).toEqual(['Bravo 10', 'charlie']); // IN_PROGRESS
+    expect(asc[4]).toBe('delta'); // COMPLETED
+    expect((await titlesOf('sort=status&order=desc'))[0]).toBe('delta');
+  });
+
+  it('ties are broken by due date, soonest first', async () => {
+    // Alpha (due in 2 days) and Bravo 10 (due in 1 day) are both HIGH: the sooner one comes first.
+    const high = (await titlesOf('sort=priority&order=desc')).slice(0, 2);
+    expect(high).toEqual(['Bravo 10', 'Alpha']);
+  });
+
+  it('sorts by assignee name ignoring case, with unassigned tasks last in either direction', async () => {
+    // "Aria Test" has Bravo 10 and delta, "ben Test" has Alpha, and charlie and Bravo 2 have no assignee.
+    expect(await titlesOf('sort=assignee')).toEqual(['Bravo 10', 'delta', 'Alpha', 'charlie', 'Bravo 2']);
+    expect(await titlesOf('sort=assignee&order=desc')).toEqual(['Alpha', 'Bravo 10', 'delta', 'charlie', 'Bravo 2']);
+  });
+
+  it('keeps pages consistent when sorted: page 2 continues where page 1 stopped', async () => {
+    const all = await titlesOf('sort=title&pageSize=100');
+    const first = await titlesOf('sort=title&pageSize=2&page=1');
+    const second = await titlesOf('sort=title&pageSize=2&page=2');
+    const third = await titlesOf('sort=title&pageSize=2&page=3');
+    expect([...first, ...second, ...third]).toEqual(all);
+  });
+
+  it('sorts only the tasks that match the filters, and counts them correctly', async () => {
+    const res = await request(app).get('/api/tasks?sort=title&status=PENDING').set(auth);
+    expect(res.body.data.map((t: { title: string }) => t.title)).toEqual(['Alpha', 'Bravo 2']);
+    expect(res.body.meta.total).toBe(2);
+  });
+
+  it('rejects a column that cannot be sorted', async () => {
+    expect((await request(app).get('/api/tasks?sort=description').set(auth)).status).toBe(400);
+    expect((await request(app).get('/api/tasks?order=sideways').set(auth)).status).toBe(400);
+  });
+});

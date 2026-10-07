@@ -114,3 +114,55 @@ describe('employees API', () => {
     expect((await request(app).delete(`/api/employees/${id}`).set(auth)).status).toBe(404);
   });
 });
+
+describe('employees API: sorting', () => {
+  const namesOf = async (query: string) => {
+    const res = await request(app).get(`/api/employees?${query}`).set(auth);
+    expect(res.status).toBe(200);
+    return res.body.data.map((e: { name: string }) => e.name);
+  };
+
+  beforeEach(async () => {
+    const make = (name: string, position: string, department: string) =>
+      prisma.employee.create({ data: { name, email: `${name.toLowerCase()}@example.com`, position, department } });
+    const cara = await make('Cara', 'support Lead', 'Support');
+    await make('Abe', 'Designer', 'design');
+    const dan = await make('Dan', 'Developer', 'Engineering');
+    await make('Eve', 'analyst', 'Finance');
+
+    const due = new Date(Date.now() + 86_400_000);
+    const task = (assigneeId: number) => prisma.task.create({ data: { title: 't', dueDate: due, assigneeId } });
+    await task(cara.id);
+    await task(cara.id);
+    await task(cara.id);
+    await task(dan.id);
+  });
+
+  it('sorts by name, A to Z by default, and reverses it', async () => {
+    expect(await namesOf('')).toEqual(['Abe', 'Cara', 'Dan', 'Eve']);
+    expect(await namesOf('sort=name&order=desc')).toEqual(['Eve', 'Dan', 'Cara', 'Abe']);
+  });
+
+  it('sorts by number of tasks, with equal counts in name order', async () => {
+    expect(await namesOf('sort=tasks&order=desc')).toEqual(['Cara', 'Dan', 'Abe', 'Eve']); // 3, 1, 0, 0
+    expect(await namesOf('sort=tasks')).toEqual(['Abe', 'Eve', 'Dan', 'Cara']); // 0, 0, 1, 3
+  });
+
+  it('sorts position and department ignoring case', async () => {
+    // Positions: analyst (Eve), Designer (Abe), Developer (Dan), support Lead (Cara).
+    expect(await namesOf('sort=position')).toEqual(['Eve', 'Abe', 'Dan', 'Cara']);
+    expect(await namesOf('sort=position&order=desc')).toEqual(['Cara', 'Dan', 'Abe', 'Eve']);
+    // Departments: design (Abe), Engineering (Dan), Finance (Eve), Support (Cara).
+    expect(await namesOf('sort=department')).toEqual(['Abe', 'Dan', 'Eve', 'Cara']);
+  });
+
+  it('keeps pages consistent when sorted', async () => {
+    const first = await namesOf('sort=department&pageSize=3&page=1');
+    const second = await namesOf('sort=department&pageSize=3&page=2');
+    expect([...first, ...second]).toEqual(await namesOf('sort=department&pageSize=100'));
+  });
+
+  it('rejects a column that cannot be sorted', async () => {
+    expect((await request(app).get('/api/employees?sort=email').set(auth)).status).toBe(400);
+  });
+});

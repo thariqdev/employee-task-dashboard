@@ -1,15 +1,20 @@
 import { useEffect, useState } from 'react';
+import { SearchX, Users } from 'lucide-react';
+import Avatar from '../components/Avatar';
 import ConfirmDeleteEmployeeModal from '../components/ConfirmDeleteEmployeeModal';
 import EmployeeFormModal from '../components/EmployeeFormModal';
+import EmptyState from '../components/EmptyState';
+import Pagination from '../components/Pagination';
+import { FetchingOverlay, TableSkeleton } from '../components/Skeleton';
+import SortHeader, { type SortOrder, nextSort } from '../components/SortHeader';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { type Employee, useEmployees } from '../hooks/useEmployees';
+import { type Employee, type EmployeeSortField, useEmployees } from '../hooks/useEmployees';
 import {
   alertClass,
   filterClass,
   ghostButton,
   ghostDangerButton,
   primaryButton,
-  secondaryButton,
   tableClass,
   tableWrapClass,
   tbodyClass,
@@ -24,15 +29,17 @@ const PAGE_SIZE = 10;
 export default function EmployeesPage() {
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
+  const [sorting, setSorting] = useState<{ sort: EmployeeSortField; order: SortOrder }>({ sort: 'name', order: 'asc' });
   // `null` = no dialog, `'new'` = the add form, an employee = the edit form.
   const [editing, setEditing] = useState<Employee | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Employee | null>(null);
 
   const search = useDebouncedValue(searchInput.trim(), 300);
-  const { data, error, isPending, isError, isPlaceholderData, refetch } = useEmployees({
+  const { data, error, isPending, isError, isFetching, refetch } = useEmployees({
     search,
     page,
     pageSize: PAGE_SIZE,
+    ...sorting,
   });
 
   // After deleting the last row of the last page, step back to a page that still exists.
@@ -41,13 +48,18 @@ export default function EmployeesPage() {
     if (totalPages !== undefined && page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
+  function sortBy(field: EmployeeSortField) {
+    setSorting((current) => nextSort(current, field));
+    setPage(1);
+  }
+
   const employees = data?.items ?? [];
   const meta = data?.meta;
 
   return (
     <section>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Employees</h1>
+        <h1 className="text-xl font-bold sm:text-2xl">Employees</h1>
         <button
           type="button"
           onClick={() => setEditing('new')}
@@ -74,11 +86,9 @@ export default function EmployeesPage() {
         />
       </div>
 
-      <div className="mt-4">
+      <div className="relative mt-4">
         {isPending ? (
-          <p role="status" className="py-8 text-center text-muted motion-safe:animate-pulse">
-            Loading employees...
-          </p>
+          <TableSkeleton label="Loading employees..." />
         ) : isError ? (
           <div role="alert" className={`${alertClass} p-4`}>
             <p>{error.message}</p>
@@ -91,20 +101,20 @@ export default function EmployeesPage() {
             </button>
           </div>
         ) : employees.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-line py-10 text-center text-muted">
+          <EmptyState icon={search ? SearchX : Users}>
             {search ? `No employees match "${search}".` : 'No employees yet. Add the first one.'}
-          </p>
+          </EmptyState>
         ) : (
           <div
-            className={`${tableWrapClass} ${isPlaceholderData ? 'opacity-60' : ''}`}
+            className={`${tableWrapClass} ${isFetching ? 'opacity-60' : ''}`}
           >
             <table className={tableClass}>
               <thead className={theadClass}>
                 <tr>
-                  <th scope="col" className={thClass}>Name</th>
-                  <th scope="col" className={thClass}>Position</th>
-                  <th scope="col" className={thClass}>Department</th>
-                  <th scope="col" className={thClass}>Tasks</th>
+                  <SortHeader label="Name" field="name" {...sorting} onSort={sortBy} />
+                  <SortHeader label="Position" field="position" {...sorting} onSort={sortBy} />
+                  <SortHeader label="Department" field="department" {...sorting} onSort={sortBy} />
+                  <SortHeader label="Tasks" field="tasks" {...sorting} onSort={sortBy} />
                   <th scope="col" className={`${thClass} text-right`}>Actions</th>
                 </tr>
               </thead>
@@ -112,12 +122,21 @@ export default function EmployeesPage() {
                 {employees.map((employee) => (
                   <tr key={employee.id} className={trClass}>
                     <td className={tdClass}>
-                      <div className="font-medium">{employee.name}</div>
-                      <div className="text-muted">{employee.email}</div>
+                      <div className="flex items-center gap-3">
+                        <Avatar name={employee.name} />
+                        <div className="min-w-0">
+                          <div className="font-bold">{employee.name}</div>
+                          <div className="text-muted">{employee.email}</div>
+                        </div>
+                      </div>
                     </td>
                     <td className={tdClass}>{employee.position}</td>
                     <td className={tdClass}>{employee.department}</td>
-                    <td className={tdClass}>{employee.taskCount}</td>
+                    <td className={tdClass}>
+                      <span className="inline-block min-w-7 rounded-full bg-raised px-2 py-0.5 text-center text-xs font-bold">
+                        {employee.taskCount}
+                      </span>
+                    </td>
                     <td className={`${tdClass} text-right whitespace-nowrap`}>
                       <button
                         type="button"
@@ -142,37 +161,10 @@ export default function EmployeesPage() {
             </table>
           </div>
         )}
+        {isFetching && !isPending && <FetchingOverlay />}
       </div>
 
-      {meta && meta.total > 0 && (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
-          <p>
-            Showing {(meta.page - 1) * meta.pageSize + 1}-
-            {Math.min(meta.page * meta.pageSize, meta.total)} of {meta.total}
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setPage((current) => current - 1)}
-              disabled={meta.page <= 1}
-              className={secondaryButton}
-            >
-              Previous
-            </button>
-            <span>
-              Page {meta.page} of {meta.totalPages}
-            </span>
-            <button
-              type="button"
-              onClick={() => setPage((current) => current + 1)}
-              disabled={meta.page >= meta.totalPages}
-              className={secondaryButton}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+      {meta && meta.total > 0 && <Pagination meta={meta} onPage={setPage} />}
 
       {editing && (
         <EmployeeFormModal employee={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />

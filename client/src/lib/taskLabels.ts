@@ -18,14 +18,14 @@ export const PRIORITY_LABELS: Record<TaskPriority, string> = {
 
 /** Color of the small dot shown before the status text. */
 export const STATUS_DOT: Record<TaskStatus, string> = {
-  PENDING: 'bg-gray-400',
-  IN_PROGRESS: 'bg-amber-500',
-  COMPLETED: 'bg-green-600',
+  PENDING: 'bg-pending',
+  IN_PROGRESS: 'bg-progress',
+  COMPLETED: 'bg-done',
 };
 
 /** How many of the 3 priority bars are filled, and in which color. */
 export const PRIORITY_BARS: Record<TaskPriority, { filled: number; color: string }> = {
-  LOW: { filled: 1, color: 'bg-gray-400' },
-  MEDIUM: { filled: 2, color: 'bg-amber-500' },
+  LOW: { filled: 1, color: 'bg-muted' },
+  MEDIUM: { filled: 2, color: 'bg-progress' },
   HIGH: { filled: 3, color: 'bg-danger' },
 };

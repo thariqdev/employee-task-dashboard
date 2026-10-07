@@ -45,6 +45,7 @@ function fakeApi(initial: Task[]) {
   let nextId = 100;
   const calls: Call[] = [];
   const failures: { status: number; message: string }[] = [];
+  let hold: Promise<void> | null = null;
 
   const reply = (status: number, payload: unknown) => ({
     ok: status >= 200 && status < 300,
@@ -76,6 +77,7 @@ function fakeApi(initial: Task[]) {
         EMPLOYEES.find((e) => e.id === assigneeId) ?? null;
 
       if (method === 'GET') {
+        if (hold) await hold;
         const q = url.searchParams;
         const search = (q.get('search') ?? '').toLowerCase();
         const page = Number(q.get('page'));
@@ -117,6 +119,15 @@ function fakeApi(initial: Task[]) {
     taskCalls,
     lastList: () => taskCalls().filter((c) => c.method === 'GET').at(-1)!.url.searchParams,
     failNext: (status: number, message: string) => failures.push({ status, message }),
+    /** Makes every list request wait until the returned function is called. */
+    holdGets: () => {
+      let release!: () => void;
+      hold = new Promise<void>((resolve) => (release = resolve));
+      return () => {
+        hold = null;
+        release();
+      };
+    },
   };
 }
 
@@ -132,6 +143,18 @@ function renderPage() {
 }
 
 const rows = () => screen.getAllByRole('row').slice(1); // without the header row
+/** Picks an option in one of the custom dropdowns inside a dialog. */
+async function pickIn(dialog: HTMLElement, dropdown: string, option: string) {
+  await userEvent.click(within(dialog).getByRole('combobox', { name: dropdown }));
+  await userEvent.click(await screen.findByRole('option', { name: option }));
+}
+
+/** Picks an option in one of the custom filter dropdowns. */
+async function choose(dropdown: string, option: string) {
+  await userEvent.click(screen.getByRole('combobox', { name: dropdown }));
+  await userEvent.click(await screen.findByRole('option', { name: option })); // employees load a moment later
+}
+
 const rowOf = (title: string) => screen.getByText(title).closest('tr')!;
 const many = (count: number) => Array.from({ length: count }, (_, i) => task(i + 1));
 
@@ -174,6 +197,21 @@ describe('TasksPage: listing', () => {
       expect(within(rowOf(title)).queryByText('Overdue')).not.toBeInTheDocument();
       expect(rowOf(title)).not.toHaveClass('is-overdue');
     }
+  });
+
+  it('shows a "Refreshing..." loader while the next page loads', async () => {
+    const api = fakeApi(many(12));
+    renderPage();
+    await screen.findByText('Task 01');
+    expect(screen.queryByText('Refreshing...')).not.toBeInTheDocument();
+
+    const release = api.holdGets();
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Refreshing...')).toBeInTheDocument();
+
+    release();
+    expect(await screen.findByText('Task 11')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Refreshing...')).not.toBeInTheDocument());
   });
 
   it('moves to the next page', async () => {
@@ -219,7 +257,7 @@ describe('TasksPage: filters', () => {
     renderPage();
     await screen.findByText('Task 01');
 
-    await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'Completed');
+    await choose('Filter by status', 'Completed');
 
     await waitFor(() => expect(rows()).toHaveLength(1));
     expect(screen.getByText('Task 01')).toBeInTheDocument();
@@ -231,7 +269,7 @@ describe('TasksPage: filters', () => {
     renderPage();
     await screen.findByText('Task 01');
 
-    await userEvent.selectOptions(screen.getByLabelText('Filter by priority'), 'High');
+    await choose('Filter by priority', 'High');
 
     await waitFor(() => expect(rows()).toHaveLength(2));
     expect(api.lastList().get('priority')).toBe('HIGH');
@@ -241,16 +279,97 @@ describe('TasksPage: filters', () => {
     const api = fakeApi(data);
     renderPage();
     await screen.findByText('Task 01');
-    await screen.findByRole('option', { name: 'Ben Test' }); // the employee list has loaded
 
-    await userEvent.selectOptions(screen.getByLabelText('Filter by assignee'), 'Ben Test');
+    await choose('Filter by assignee', 'Ben Test');
     await waitFor(() => expect(rows()).toHaveLength(1));
     expect(screen.getByText('Task 02')).toBeInTheDocument();
     expect(api.lastList().get('assigneeId')).toBe('2');
 
-    await userEvent.selectOptions(screen.getByLabelText('Filter by assignee'), 'Unassigned');
+    await choose('Filter by assignee', 'Unassigned');
     await waitFor(() => expect(screen.getByText('Task 03')).toBeInTheDocument());
     expect(api.lastList().get('assigneeId')).toBe('unassigned');
+  });
+
+  it('offers a button that clears every filter at once, only while a filter is set', async () => {
+    fakeApi(data);
+    renderPage();
+    await screen.findByText('Task 01');
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText('Search tasks'), 'task');
+    await choose('Filter by status', 'Pending');
+    await choose('Filter by priority', 'High');
+    await userEvent.click(screen.getByLabelText('Overdue only'));
+    await waitFor(() => expect(rows()).toHaveLength(1));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+
+    expect(screen.getByLabelText('Search tasks')).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'Filter by status' })).toHaveTextContent('All statuses');
+    expect(screen.getByRole('combobox', { name: 'Filter by priority' })).toHaveTextContent('All priorities');
+    expect(screen.getByLabelText('Overdue only')).not.toBeChecked();
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    // Back to the unfiltered list (it may come from cache, so no new request is needed to prove it).
+  });
+
+  it('shows the "Refreshing..." loader when the filters are cleared, even if that list was cached', async () => {
+    const api = fakeApi(data);
+    renderPage();
+    await screen.findByText('Task 01');
+    await choose('Filter by status', 'Completed');
+    await waitFor(() => expect(rows()).toHaveLength(1));
+
+    const release = api.holdGets();
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(await screen.findByText('Refreshing...')).toBeInTheDocument();
+
+    release();
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    await waitFor(() => expect(screen.queryByText('Refreshing...')).not.toBeInTheDocument());
+  });
+
+  it('sorts by a column when its header is clicked, and reverses on a second click', async () => {
+    const api = fakeApi(data);
+    renderPage();
+    await screen.findByText('Task 01');
+    // The table starts sorted by due date, soonest first.
+    expect(screen.getByRole('columnheader', { name: /Due/ })).toHaveAttribute('aria-sort', 'ascending');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Priority' }));
+    await waitFor(() => expect(api.lastList().get('sort')).toBe('priority'));
+    expect(api.lastList().get('order')).toBe('asc');
+    expect(screen.getByRole('columnheader', { name: /Priority/ })).toHaveAttribute('aria-sort', 'ascending');
+    expect(screen.getByRole('columnheader', { name: /Due/ })).not.toHaveAttribute('aria-sort');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Priority' }));
+    await waitFor(() => expect(api.lastList().get('order')).toBe('desc'));
+    expect(screen.getByRole('columnheader', { name: /Priority/ })).toHaveAttribute('aria-sort', 'descending');
+  });
+
+  it('goes back to page 1 when the sort changes', async () => {
+    const api = fakeApi(many(12));
+    renderPage();
+    await screen.findByText('Task 01');
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByText('Page 2 of 2');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Task' }));
+    await waitFor(() => expect(api.lastList().get('sort')).toBe('title'));
+    expect(api.lastList().get('page')).toBe('1');
+  });
+
+  it('keeps the sort when the filters are cleared', async () => {
+    const api = fakeApi(data);
+    renderPage();
+    await screen.findByText('Task 01');
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Status' }));
+    await choose('Filter by priority', 'High');
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    expect(api.lastList().get('sort')).toBe('status');
+    expect(api.lastList().has('priority')).toBe(false);
   });
 
   it('shows only overdue tasks when "Overdue only" is ticked', async () => {
@@ -286,7 +405,7 @@ describe('TasksPage: filters', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
     await screen.findByText('Page 2 of 2');
 
-    await userEvent.selectOptions(screen.getByLabelText('Filter by priority'), 'Medium');
+    await choose('Filter by priority', 'Medium');
 
     await waitFor(() => expect(api.lastList().get('priority')).toBe('MEDIUM'));
     expect(api.lastList().get('page')).toBe('1');
@@ -318,8 +437,7 @@ describe('TasksPage: adding and editing', () => {
 
     await userEvent.type(within(dialog).getByLabelText('Title'), 'Ship the release');
     fireEvent.change(within(dialog).getByLabelText('Due date'), { target: { value: '2099-01-01' } });
-    await within(dialog).findByRole('option', { name: 'Aria Test' });
-    await userEvent.selectOptions(within(dialog).getByLabelText('Assigned to'), 'Aria Test');
+    await pickIn(dialog, 'Assigned to', 'Aria Test');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add task' }));
 
     expect(await screen.findByText('Ship the release')).toBeInTheDocument();
@@ -356,11 +474,11 @@ describe('TasksPage: adding and editing', () => {
     const dialog = screen.getByRole('dialog', { name: 'Edit task' });
 
     expect(within(dialog).getByLabelText('Title')).toHaveValue('Task 01');
-    expect(within(dialog).getByLabelText('Priority')).toHaveValue('HIGH');
+    expect(within(dialog).getByRole('combobox', { name: 'Priority' })).toHaveTextContent('High');
     expect(within(dialog).getByLabelText('Due date')).toHaveValue('2099-03-05');
-    expect(within(dialog).getByLabelText('Assigned to')).toHaveValue('2');
+    expect(within(dialog).getByRole('combobox', { name: 'Assigned to' })).toHaveTextContent('Ben Test');
 
-    await userEvent.selectOptions(within(dialog).getByLabelText('Status'), 'Completed');
+    await pickIn(dialog, 'Status', 'Completed');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => expect(within(rowOf('Task 01')).getByText('Completed')).toBeInTheDocument());
@@ -381,7 +499,7 @@ describe('TasksPage: adding and editing', () => {
     const dialog = screen.getByRole('dialog', { name: 'Edit task' });
 
     fireEvent.change(within(dialog).getByLabelText('Due date'), { target: { value: '2099-12-31' } });
-    await userEvent.selectOptions(within(dialog).getByLabelText('Assigned to'), 'Unassigned');
+    await pickIn(dialog, 'Assigned to', 'Unassigned');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => expect(within(rowOf('Task 01')).getByText('Unassigned')).toBeInTheDocument());

@@ -22,3 +22,14 @@ export function formatDueDate(iso: string) {
     year: 'numeric',
   });
 }
+
+export type DueState = 'overdue' | 'soon' | 'done' | 'later';
+
+const SOON_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** How urgent a task's due date is: finished, overdue, due within 3 days, or not yet. */
+export function dueState(task: { dueDate: string; status: string; isOverdue: boolean }, now = new Date()): DueState {
+  if (task.status === 'COMPLETED') return 'done';
+  if (task.isOverdue) return 'overdue';
+  return new Date(task.dueDate).getTime() - now.getTime() <= SOON_MS ? 'soon' : 'later';
+}

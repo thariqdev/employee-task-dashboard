@@ -14,7 +14,7 @@ const admin = { id: 1, name: 'Demo Admin', email: 'admin@example.com' };
 const okMe: Reply = { status: 200, body: { data: admin } };
 const unauthorized: Reply = { status: 401, body: { error: { message: 'Invalid or expired token' } } };
 
-const emptyEmployeesPage = {
+const emptyListPage = {
   data: [],
   meta: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
 };
@@ -22,8 +22,8 @@ const emptyEmployeesPage = {
 function mockFetch(handler: (url: string) => Reply) {
   const fetchMock = vi.fn(async (url: string) => {
     let { status, body } = handler(url);
-    // The real Employees page loads its list once the guard lets it in. Answer that with a valid empty page.
-    if (url.includes('/employees') && status === 200) body = emptyEmployeesPage;
+    // The real pages load their lists once the guard lets them in. Answer those with a valid empty page.
+    if ((url.includes('/employees') || url.includes('/tasks')) && status === 200) body = emptyListPage;
     return { ok: status >= 200 && status < 300, status, json: async () => body };
   });
   vi.stubGlobal('fetch', fetchMock);

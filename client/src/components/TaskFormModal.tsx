@@ -1,10 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { useEmployeeOptions } from '../hooks/useEmployees';
 import { type Task, type TaskInput, useCreateTask, useUpdateTask } from '../hooks/useTasks';
 import { ApiError } from '../lib/api';
+import { parseIso } from '../lib/calendar';
 import { endOfDayUtc, toDateInput } from '../lib/dates';
 import { PRIORITIES, PRIORITY_LABELS, STATUSES, STATUS_LABELS } from '../lib/taskLabels';
 import {
@@ -15,14 +16,21 @@ import {
   secondaryButton,
   textareaClass,
 } from '../lib/ui';
+import DatePicker from './DatePicker';
 import Modal from './Modal';
+import Select from './Select';
+import { PriorityBars, StatusDot } from './TaskBadges';
 
 const taskSchema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(150, 'Title must be at most 150 characters'),
   description: z.string().trim().max(2000, 'Description must be at most 2000 characters'),
   priority: z.enum(PRIORITIES),
   status: z.enum(STATUSES),
-  dueDate: z.string().min(1, 'Due date is required'), // "yyyy-mm-dd" from the date input
+  // "yyyy-mm-dd", typed or picked from the calendar
+  dueDate: z.string().superRefine((value, ctx) => {
+    if (value.trim() === '') ctx.addIssue({ code: 'custom', message: 'Due date is required' });
+    else if (!parseIso(value.trim())) ctx.addIssue({ code: 'custom', message: 'Enter a real date as yyyy-mm-dd' });
+  }),
   assigneeId: z.number().int().positive().nullable(),
 });
 type TaskForm = z.infer<typeof taskSchema>;
@@ -51,6 +59,7 @@ export default function TaskFormModal({ task, onClose }: Props) {
 
   const {
     register,
+    control,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
@@ -124,50 +133,80 @@ export default function TaskFormModal({ task, onClose }: Props) {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="task-priority" className="block text-sm font-medium">Priority</label>
-            <select id="task-priority" className={inputClass} {...register('priority')}>
-              {PRIORITIES.map((p) => (
-                <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>
-              ))}
-            </select>
+            <Controller
+              control={control}
+              name="priority"
+              render={({ field }) => (
+                <Select
+                  id="task-priority"
+                  label="Priority"
+                  variant="field"
+                  value={field.value}
+                  onChange={field.onChange}
+                  options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABELS[p], icon: <PriorityBars priority={p} /> }))}
+                />
+              )}
+            />
           </div>
           <div>
             <label htmlFor="task-status" className="block text-sm font-medium">Status</label>
-            <select id="task-status" className={inputClass} {...register('status')}>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-              ))}
-            </select>
+            <Controller
+              control={control}
+              name="status"
+              render={({ field }) => (
+                <Select
+                  id="task-status"
+                  label="Status"
+                  variant="field"
+                  value={field.value}
+                  onChange={field.onChange}
+                  options={STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s], icon: <StatusDot status={s} /> }))}
+                />
+              )}
+            />
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="task-due" className="block text-sm font-medium">Due date</label>
-            <input
-              id="task-due"
-              type="date"
-              aria-invalid={errors.dueDate ? 'true' : 'false'}
-              className={inputClass}
-              {...register('dueDate')}
+            <Controller
+              control={control}
+              name="dueDate"
+              render={({ field }) => (
+                <DatePicker
+                  id="task-due"
+                  value={field.value}
+                  onChange={field.onChange}
+                  invalid={Boolean(errors.dueDate)}
+                />
+              )}
             />
             {errors.dueDate && <p className={errorTextClass}>{errors.dueDate.message}</p>}
           </div>
           <div>
             <label htmlFor="task-assignee" className="block text-sm font-medium">Assigned to</label>
-            <select
-              id="task-assignee"
-              className={inputClass}
-              {...register('assigneeId', { setValueAs: (v) => (v === '' || v == null ? null : Number(v)) })}
-            >
-              <option value="">Unassigned</option>
-              {assigneeOptions.map((e) => (
-                <option key={e.id} value={e.id}>{e.name}</option>
-              ))}
-            </select>
+            <Controller
+              control={control}
+              name="assigneeId"
+              render={({ field }) => (
+                <Select
+                  id="task-assignee"
+                  label="Assigned to"
+                  variant="field"
+                  value={field.value === null ? '' : String(field.value)}
+                  onChange={(value) => field.onChange(value === '' ? null : Number(value))}
+                  options={[
+                    { value: '', label: 'Unassigned' },
+                    ...assigneeOptions.map((e) => ({ value: String(e.id), label: e.name })),
+                  ]}
+                />
+              )}
+            />
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onClose}

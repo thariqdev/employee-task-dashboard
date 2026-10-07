@@ -104,11 +104,11 @@ Everything except `/health` and `/auth/login` needs the header `Authorization: B
 | GET | `/health` | Health check |
 | POST | `/auth/login` | Sign in with `{ email, password }`, returns a JWT (rate limited) |
 | GET | `/auth/me` | Current admin, used to validate the token |
-| GET | `/employees` | List. Query: `search`, `department`, `page`, `pageSize` |
+| GET | `/employees` | List. Query: `search`, `department`, `sort` (`name`, `position`, `department`, `tasks`), `order` (`asc`, `desc`), `page`, `pageSize` |
 | POST | `/employees` | Create `{ name, email, position, department }` |
 | PATCH | `/employees/:id` | Update any of those fields |
 | DELETE | `/employees/:id` | Delete, their tasks become unassigned |
-| GET | `/tasks` | List. Query: `search`, `status`, `priority`, `assigneeId` (id or `unassigned`), `overdue`, `page`, `pageSize` |
+| GET | `/tasks` | List. Query: `search`, `status`, `priority`, `assigneeId` (id or `unassigned`), `overdue`, `sort` (`title`, `assignee`, `priority`, `status`, `dueDate`), `order` (`asc`, `desc`), `page`, `pageSize` |
 | POST | `/tasks` | Create `{ title, description, priority, status, dueDate, assigneeId }` |
 | PATCH | `/tasks/:id` | Update any of those fields |
 | DELETE | `/tasks/:id` | Delete |
@@ -131,3 +131,4 @@ _More to be added as the build progresses._
 - **End-to-end tests.** Unit and API tests exist, but no browser test (Playwright) covers the full login to task flow.
 - **Deployment.** Add a Dockerfile, CI that runs tests and typecheck, and PostgreSQL in production.
 - **More task features.** Comments, due-date reminders and sorting by column.
+n

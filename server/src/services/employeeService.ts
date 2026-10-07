@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { HttpError } from '../lib/httpError.js';
 import { prisma } from '../lib/prisma.js';
+import { compareText, inOrderOf, pageOfIds } from '../lib/sorting.js';
 import type {
   CreateEmployeeInput,
   ListEmployeesQuery,
@@ -25,7 +26,7 @@ function rethrowKnownErrors(err: unknown): never {
   throw err;
 }
 
-export async function listEmployees({ search, department, page, pageSize }: ListEmployeesQuery) {
+export async function listEmployees({ search, department, sort, order, page, pageSize }: ListEmployeesQuery) {
   const where: Prisma.EmployeeWhereInput = {
     ...(department ? { department } : {}),
     ...(search
@@ -33,16 +34,35 @@ export async function listEmployees({ search, department, page, pageSize }: List
       : {}),
   };
 
-  const [total, employees] = await prisma.$transaction([
-    prisma.employee.count({ where }),
-    prisma.employee.findMany({
-      where,
-      include: withTaskCount,
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
+  const skip = (page - 1) * pageSize;
+
+  // Name and number of tasks are plain database sorts. Position and department are sorted in memory,
+  // ignoring case, because people type those in ("legal" must not sort after "Support").
+  let total: number;
+  let employees: EmployeeWithCount[];
+  if (sort === 'position' || sort === 'department') {
+    const direction = order === 'desc' ? -1 : 1;
+    const rows = await prisma.employee.findMany({ where, select: { id: true, name: true, position: true, department: true } });
+    const ids = pageOfIds(
+      rows,
+      (a, b) => direction * compareText(a[sort], b[sort]) || compareText(a.name, b.name),
+      skip,
+      pageSize,
+    );
+    total = rows.length;
+    employees = inOrderOf(ids, await prisma.employee.findMany({ where: { id: { in: ids } }, include: withTaskCount }));
+  } else {
+    [total, employees] = await prisma.$transaction([
+      prisma.employee.count({ where }),
+      prisma.employee.findMany({
+        where,
+        include: withTaskCount,
+        orderBy: [sort === 'tasks' ? { tasks: { _count: order } } : { name: order }, { name: 'asc' }, { id: 'asc' }],
+        skip,
+        take: pageSize,
+      }),
+    ]);
+  }
 
   return {
     employees: employees.map(toDto),

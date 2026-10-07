@@ -19,6 +19,12 @@ describe('Modal', () => {
     expect(screen.getByRole('dialog', { name: 'Edit thing' })).toBeInTheDocument();
   });
 
+  it('closes with the X button', async () => {
+    const onClose = renderModal();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Close dialog' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('closes on Escape', async () => {
     const onClose = renderModal();
     await userEvent.setup().keyboard('{Escape}');

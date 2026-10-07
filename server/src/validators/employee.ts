@@ -18,9 +18,14 @@ export const employeeIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
+/** The columns an employee list can be sorted by. "tasks" is the number of tasks they have. */
+export const EMPLOYEE_SORT_FIELDS = ['name', 'position', 'department', 'tasks'] as const;
+
 export const listEmployeesQuerySchema = z.object({
   search: z.string().trim().optional(),
   department: z.string().trim().optional(),
+  sort: z.enum(EMPLOYEE_SORT_FIELDS).default('name'),
+  order: z.enum(['asc', 'desc']).default('asc'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
 });

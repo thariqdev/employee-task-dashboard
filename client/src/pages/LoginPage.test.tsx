@@ -52,6 +52,19 @@ describe('LoginPage', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('hides the password by default and shows it while the eye button is on', async () => {
+    const user = userEvent.setup();
+    renderLogin();
+    const password = screen.getByLabelText('Password');
+    expect(password).toHaveAttribute('type', 'password');
+
+    await user.click(screen.getByRole('button', { name: 'Show characters' }));
+    expect(password).toHaveAttribute('type', 'text');
+
+    await user.click(screen.getByRole('button', { name: 'Hide characters' }));
+    expect(password).toHaveAttribute('type', 'password');
+  });
+
   it('logs in, stores the token and goes to the home page', async () => {
     const fetchMock = mockApi(200, { data: { token: 'abc.def.ghi', admin: { id: 1, name: 'A', email: 'a@b.co' } } });
     renderLogin();

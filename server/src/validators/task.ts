@@ -34,12 +34,17 @@ export const taskIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
+/** The columns a task list can be sorted by. */
+export const TASK_SORT_FIELDS = ['title', 'assignee', 'priority', 'status', 'dueDate'] as const;
+
 export const listTasksQuerySchema = z.object({
   search: z.string().trim().optional(),
   status: z.enum(TaskStatus).optional(),
   priority: z.enum(TaskPriority).optional(),
   assigneeId: z.union([z.literal('unassigned'), z.coerce.number().int().positive()]).optional(),
   overdue: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+  sort: z.enum(TASK_SORT_FIELDS).default('dueDate'),
+  order: z.enum(['asc', 'desc']).default('asc'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
 });

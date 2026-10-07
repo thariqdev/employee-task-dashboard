@@ -31,6 +31,7 @@ function fakeApi(initial: Employee[]) {
   let nextId = 100;
   const calls: Call[] = [];
   const failures: { status: number; message: string }[] = [];
+  let hold: Promise<void> | null = null;
 
   const reply = (status: number, payload: unknown) => ({
     ok: status >= 200 && status < 300,
@@ -52,6 +53,7 @@ function fakeApi(initial: Employee[]) {
       const id = Number(url.pathname.match(/\/employees\/(\d+)$/)?.[1]);
 
       if (method === 'GET') {
+        if (hold) await hold;
         const search = (url.searchParams.get('search') ?? '').toLowerCase();
         const page = Number(url.searchParams.get('page'));
         const pageSize = Number(url.searchParams.get('pageSize'));
@@ -84,7 +86,19 @@ function fakeApi(initial: Employee[]) {
     }),
   );
 
-  return { calls, failNext: (status: number, message: string) => failures.push({ status, message }) };
+  return {
+    calls,
+    failNext: (status: number, message: string) => failures.push({ status, message }),
+    /** Makes every list request wait until the returned function is called. */
+    holdGets: () => {
+      let release!: () => void;
+      hold = new Promise<void>((resolve) => (release = resolve));
+      return () => {
+        hold = null;
+        release();
+      };
+    },
+  };
 }
 
 function renderPage() {
@@ -124,6 +138,36 @@ describe('EmployeesPage: listing', () => {
 
     const row = (await screen.findByText('Person 01')).closest('tr')!;
     expect(within(row).getByText('4')).toBeInTheDocument();
+  });
+
+  it('shows a "Refreshing..." loader while the next page loads', async () => {
+    const api = fakeApi(many(12));
+    renderPage();
+    await screen.findByText('Person 01');
+    expect(screen.queryByText('Refreshing...')).not.toBeInTheDocument();
+
+    const release = api.holdGets();
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Refreshing...')).toBeInTheDocument();
+
+    release();
+    expect(await screen.findByText('Person 11')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Refreshing...')).not.toBeInTheDocument());
+  });
+
+  it('sorts by number of tasks when that header is clicked, and starts out sorted by name', async () => {
+    const api = fakeApi(many(3));
+    renderPage();
+    await screen.findByText('Person 01');
+    expect(screen.getByRole('columnheader', { name: /Name/ })).toHaveAttribute('aria-sort', 'ascending');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Tasks' }));
+    await waitFor(() => expect(api.calls.at(-1)!.url.searchParams.get('sort')).toBe('tasks'));
+    expect(api.calls.at(-1)!.url.searchParams.get('order')).toBe('asc');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Tasks' }));
+    await waitFor(() => expect(api.calls.at(-1)!.url.searchParams.get('order')).toBe('desc'));
+    expect(screen.getByRole('columnheader', { name: /Tasks/ })).toHaveAttribute('aria-sort', 'descending');
   });
 
   it('moves to the next page', async () => {
@@ -187,6 +231,12 @@ describe('EmployeesPage: adding and editing', () => {
     }
   }
 
+  /** Opens one of the custom dropdowns in the form and clicks an option. */
+  async function pick(dialog: HTMLElement, dropdown: string, option: string) {
+    await userEvent.click(within(dialog).getByRole('combobox', { name: dropdown }));
+    await userEvent.click(await screen.findByRole('option', { name: option }));
+  }
+
   it('shows validation messages and sends nothing when the form is empty', async () => {
     const api = fakeApi([]);
     renderPage();
@@ -196,8 +246,8 @@ describe('EmployeesPage: adding and editing', () => {
 
     expect(await within(dialog).findByText('Name is required')).toBeInTheDocument();
     expect(within(dialog).getByText('Enter a valid email address')).toBeInTheDocument();
-    expect(within(dialog).getByText('Position is required')).toBeInTheDocument();
-    expect(within(dialog).getByText('Department is required')).toBeInTheDocument();
+    expect(within(dialog).getByText('Choose a position')).toBeInTheDocument();
+    expect(within(dialog).getByText('Choose a department')).toBeInTheDocument();
     expect(api.calls.some((c) => c.method === 'POST')).toBe(false);
   });
 
@@ -206,12 +256,9 @@ describe('EmployeesPage: adding and editing', () => {
     renderPage();
     const dialog = await openAddForm();
 
-    await fillForm(dialog, {
-      Name: 'Nia Park',
-      Email: 'nia@example.com',
-      Position: 'Designer',
-      Department: 'Design',
-    });
+    await fillForm(dialog, { Name: 'Nia Park', Email: 'nia@example.com' });
+    await pick(dialog, 'Position', 'Product Designer');
+    await pick(dialog, 'Department', 'Design');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add employee' }));
 
     expect(await screen.findByText('Nia Park')).toBeInTheDocument();
@@ -219,7 +266,7 @@ describe('EmployeesPage: adding and editing', () => {
     expect(api.calls.find((c) => c.method === 'POST')!.body).toEqual({
       name: 'Nia Park',
       email: 'nia@example.com',
-      position: 'Designer',
+      position: 'Product Designer',
       department: 'Design',
     });
   });
@@ -230,12 +277,9 @@ describe('EmployeesPage: adding and editing', () => {
     await screen.findByText('Person 01');
     const dialog = await openAddForm();
 
-    await fillForm(dialog, {
-      Name: 'Copy Cat',
-      Email: 'person01@example.com',
-      Position: 'Dev',
-      Department: 'Eng',
-    });
+    await fillForm(dialog, { Name: 'Copy Cat', Email: 'person01@example.com' });
+    await pick(dialog, 'Position', 'QA Engineer');
+    await pick(dialog, 'Department', 'Engineering');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add employee' }));
 
     expect(await within(dialog).findByText('An employee with this email already exists')).toBeInTheDocument();
@@ -253,9 +297,11 @@ describe('EmployeesPage: adding and editing', () => {
     const dialog = screen.getByRole('dialog', { name: 'Edit employee' });
 
     expect(within(dialog).getByLabelText('Name')).toHaveValue('Person 01');
-    expect(within(dialog).getByLabelText('Position')).toHaveValue('Developer');
+    // "Developer" is not in the list, so the form opens on "Other..." with the text filled in.
+    expect(within(dialog).getByRole('combobox', { name: 'Position' })).toHaveTextContent('Other...');
+    expect(within(dialog).getByLabelText('Other position')).toHaveValue('Developer');
 
-    await fillForm(dialog, { Position: 'Team Lead' });
+    await fillForm(dialog, { 'Other position': 'Team Lead' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
 
     expect(await screen.findByText('Team Lead')).toBeInTheDocument();
@@ -263,6 +309,77 @@ describe('EmployeesPage: adding and editing', () => {
     const patch = api.calls.find((c) => c.method === 'PATCH')!;
     expect(patch.url.pathname).toMatch(/\/employees\/1$/);
     expect(patch.body).toMatchObject({ position: 'Team Lead', name: 'Person 01' });
+  });
+
+  describe('position and department dropdowns', () => {
+    it('lists the choices, with "Other..." last', async () => {
+      fakeApi([]);
+      renderPage();
+      const dialog = await openAddForm();
+
+      await userEvent.click(within(dialog).getByRole('combobox', { name: 'Department' }));
+      const options = screen.getAllByRole('option').map((o) => o.textContent);
+      expect(options).toContain('Engineering');
+      expect(options.at(-1)).toBe('Other...');
+    });
+
+    it('shows an extra text box only while "Other..." is chosen', async () => {
+      fakeApi([]);
+      renderPage();
+      const dialog = await openAddForm();
+      expect(within(dialog).queryByLabelText('Other position')).not.toBeInTheDocument();
+
+      await pick(dialog, 'Position', 'Other...');
+      expect(within(dialog).getByLabelText('Other position')).toBeInTheDocument();
+
+      await pick(dialog, 'Position', 'QA Engineer');
+      expect(within(dialog).queryByLabelText('Other position')).not.toBeInTheDocument();
+    });
+
+    it('saves the typed value, tidied up, when "Other..." is used for both', async () => {
+      const api = fakeApi([]);
+      renderPage();
+      const dialog = await openAddForm();
+
+      await fillForm(dialog, { Name: 'Sam Lee', Email: 'sam@example.com' });
+      await pick(dialog, 'Position', 'Other...');
+      await fillForm(dialog, { 'Other position': '  Data   Scientist ' });
+      await pick(dialog, 'Department', 'Other...');
+      await fillForm(dialog, { 'Other department': 'Legal' });
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Add employee' }));
+
+      expect(await screen.findByText('Sam Lee')).toBeInTheDocument();
+      expect(api.calls.find((c) => c.method === 'POST')!.body).toMatchObject({
+        position: 'Data Scientist',
+        department: 'Legal',
+      });
+    });
+
+    it('checks what is typed in "Other..." and sends nothing until it is fine', async () => {
+      const api = fakeApi([]);
+      renderPage();
+      const dialog = await openAddForm();
+      await fillForm(dialog, { Name: 'Sam Lee', Email: 'sam@example.com' });
+      await pick(dialog, 'Department', 'Finance');
+      await pick(dialog, 'Position', 'Other...');
+      const submit = () => userEvent.click(within(dialog).getByRole('button', { name: 'Add employee' }));
+
+      await submit();
+      expect(await within(dialog).findByText('Enter the position')).toBeInTheDocument();
+
+      await fillForm(dialog, { 'Other position': '12345' });
+      await submit();
+      expect(await within(dialog).findByText('The position must include at least one letter')).toBeInTheDocument();
+
+      await fillForm(dialog, { 'Other position': 'qa engineer' });
+      await submit();
+      expect(
+        await within(dialog).findByText('"QA Engineer" is already in the list. Choose it from the dropdown'),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByLabelText('Other position')).toHaveAttribute('aria-invalid', 'true');
+
+      expect(api.calls.some((c) => c.method === 'POST')).toBe(false);
+    });
   });
 
   it('closes the form with Escape without saving', async () => {
@@ -315,6 +432,20 @@ describe('EmployeesPage: deleting', () => {
     expect(screen.getByText('Person 02')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.calls.find((c) => c.method === 'DELETE')!.url.pathname).toMatch(/\/employees\/1$/);
+  });
+
+  it('shows the "Refreshing..." loader while the list reloads after a delete', async () => {
+    const api = fakeApi([person(1), person(2)]);
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete Person 01' }));
+
+    const release = api.holdGets(); // the reload that follows the delete will wait
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('Refreshing...')).toBeInTheDocument();
+
+    release();
+    await waitFor(() => expect(screen.queryByText('Person 01')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('Refreshing...')).not.toBeInTheDocument());
   });
 
   it('steps back a page when the last row of the last page is deleted', async () => {

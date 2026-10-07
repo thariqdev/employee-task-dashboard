@@ -16,14 +16,25 @@ export type EmployeeInput = Pick<Employee, 'name' | 'email' | 'position' | 'depa
 
 export const EMPLOYEES_KEY = ['employees'] as const;
 
-type ListParams = { search: string; page: number; pageSize: number };
+export type EmployeeSortField = 'name' | 'position' | 'department' | 'tasks';
 
-export function useEmployees({ search, page, pageSize }: ListParams) {
+type ListParams = {
+  search: string;
+  page: number;
+  pageSize: number;
+  /** Defaults to the name, A to Z. */
+  sort?: EmployeeSortField;
+  order?: 'asc' | 'desc';
+};
+
+export function useEmployees({ search, page, pageSize, sort, order }: ListParams) {
   return useQuery({
-    queryKey: [...EMPLOYEES_KEY, { search, page, pageSize }],
+    queryKey: [...EMPLOYEES_KEY, { search, page, pageSize, sort, order }],
     queryFn: () => {
       const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (search) query.set('search', search);
+      if (sort) query.set('sort', sort);
+      if (order) query.set('order', order);
       return apiFetchPage<Employee>(`/employees?${query}`);
     },
     placeholderData: keepPreviousData, // keep showing the old rows while the next page loads

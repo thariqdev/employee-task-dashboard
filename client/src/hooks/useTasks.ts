@@ -39,13 +39,23 @@ export type TaskFilters = {
   overdueOnly: boolean;
 };
 
-type ListParams = TaskFilters & { page: number; pageSize: number };
+export type TaskSortField = 'title' | 'assignee' | 'priority' | 'status' | 'dueDate';
+
+type ListParams = TaskFilters & {
+  page: number;
+  pageSize: number;
+  /** Defaults to the due date, soonest first. */
+  sort?: TaskSortField;
+  order?: 'asc' | 'desc';
+};
 
 export function useTasks(params: ListParams) {
   return useQuery({
     queryKey: [...TASKS_KEY, params],
     queryFn: () => {
       const query = new URLSearchParams({ page: String(params.page), pageSize: String(params.pageSize) });
+      if (params.sort) query.set('sort', params.sort);
+      if (params.order) query.set('order', params.order);
       if (params.search) query.set('search', params.search);
       if (params.status) query.set('status', params.status);
       if (params.priority) query.set('priority', params.priority);

@@ -38,7 +38,7 @@ export default function ConfirmDeleteEmployeeModal({ employee, onClose }: Props)
         <p>This cannot be undone.</p>
       </div>
 
-      <div className="mt-6 flex justify-end gap-2">
+      <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button
           type="button"
           autoFocus
