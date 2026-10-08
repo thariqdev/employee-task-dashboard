@@ -117,7 +117,10 @@ Environment variables:
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | the first admin account. The password needs 12+ characters. Do not use the demo password |
 | `ADMIN_NAME` | optional |
 
-`PORT` is set by Render. The admin is only created if it does not exist, so a restart never resets a password.
+`PORT` is set by Render. The admin is only created if it does not exist, so a restart never resets a password, and
+`ADMIN_PASSWORD` is not even checked while the account exists. To replace a forgotten or wrong password, set
+`ADMIN_RESET` to `true` for one deploy (with `ADMIN_EMAIL` and a new `ADMIN_PASSWORD`), then **remove `ADMIN_RESET`**.
+Changing `ADMIN_PASSWORD` alone does nothing to an account that already exists.
 Check it: open `https://YOUR-SERVICE.onrender.com/api/health`. The API docs are at `/api/docs`.
 
 ### 3. Client on Vercel

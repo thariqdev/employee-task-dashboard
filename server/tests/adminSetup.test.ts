@@ -52,6 +52,35 @@ describe('createAdminIfMissing', () => {
     expect(await bcrypt.compare(PASSWORD, admins[0]!.passwordHash)).toBe(true);
   });
 
+  it('does not look at the password when the account exists, so a short one cannot block a start', async () => {
+    await createAdminIfMissing({ email: 'boss@example.com', password: PASSWORD });
+    expect(await createAdminIfMissing({ email: 'boss@example.com', password: 'short' })).toBe('already-exists');
+  });
+
+  it('replaces the password of an existing admin only when asked to', async () => {
+    await createAdminIfMissing({ email: 'boss@example.com', password: PASSWORD, name: 'Boss' });
+    const NEW = 'brand-new-long-password';
+
+    expect(await createAdminIfMissing({ email: 'boss@example.com', password: NEW, resetPassword: true })).toBe('password-reset');
+    const admins = await prisma.admin.findMany();
+    expect(admins).toHaveLength(1); // the same account, not a second one
+    expect(await bcrypt.compare(NEW, admins[0]!.passwordHash)).toBe(true);
+    expect(await bcrypt.compare(PASSWORD, admins[0]!.passwordHash)).toBe(false);
+    expect(admins[0]!.name).toBe('Boss'); // the name is kept when none is given
+  });
+
+  it('still refuses a short password when resetting, and changes nothing', async () => {
+    await createAdminIfMissing({ email: 'boss@example.com', password: PASSWORD });
+    await expect(createAdminIfMissing({ email: 'boss@example.com', password: 'short', resetPassword: true })).rejects.toThrow(
+      /at least 12 characters/,
+    );
+    expect(await bcrypt.compare(PASSWORD, (await prisma.admin.findMany())[0]!.passwordHash)).toBe(true);
+  });
+
+  it('creates the account when a reset is asked for but there is none yet', async () => {
+    expect(await createAdminIfMissing({ email: 'boss@example.com', password: PASSWORD, resetPassword: true })).toBe('created');
+  });
+
   it('does nothing when the email or the password is missing', async () => {
     expect(await createAdminIfMissing({})).toBe('skipped');
     expect(await createAdminIfMissing({ email: 'boss@example.com' })).toBe('skipped');
