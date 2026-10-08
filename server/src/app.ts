@@ -12,6 +12,10 @@ import { taskRoutes } from './routes/tasks.js';
 export function createApp() {
   const app = express();
 
+  // Behind a hosting proxy every request seems to come from the proxy, which would make the login rate limit
+  // shared by all visitors. This tells Express to read the real IP from the proxy's forwarding header.
+  if (config.trustProxy > 0) app.set('trust proxy', config.trustProxy);
+
   app.use(helmet());
   app.use(cors({ origin: config.clientOrigins }));
   app.use(express.json({ limit: '100kb' }));

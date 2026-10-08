@@ -8,6 +8,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_EXPIRES_IN: z.string().default('8h'),
   CLIENT_ORIGIN: z.string().default('http://localhost:5173'),
+  // How many proxies sit in front of the server (Render and similar hosts: 1). Needed to see the real visitor IP.
+  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -29,5 +31,6 @@ export const config = {
     secret: parsed.data.JWT_SECRET,
     expiresIn: parsed.data.JWT_EXPIRES_IN,
   },
+  trustProxy: parsed.data.TRUST_PROXY,
   clientOrigins: parsed.data.CLIENT_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean),
 } as const;

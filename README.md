@@ -84,15 +84,69 @@ npm run dev
 | ----- | -------- |
 | `admin@example.com` | `Admin@12345` |
 
-## Switching to PostgreSQL
+## Deployment (Vercel + Render + PostgreSQL)
 
-The Prisma schema only uses features that SQLite and PostgreSQL both support. To switch:
+The client is a static site on **Vercel**. The server is a Node service on **Render**, with a hosted **PostgreSQL** database.
+Locally and in the tests the project still uses SQLite. For production, `npm run build:prod -w server` makes a PostgreSQL
+copy of the schema (`server/prisma/postgres/schema.prisma`, the same file with one line changed) and the matching migrations
+are in `server/prisma/postgres/migrations`. A test fails if the copy is out of date.
 
-1. In `server/prisma/schema.prisma`, change `provider = "sqlite"` to `provider = "postgresql"`.
-2. Set `DATABASE_URL` in `server/.env` to a Postgres connection string, for example
-   `postgresql://user:password@localhost:5432/taskdesk?schema=public`.
-3. Delete the `server/prisma/migrations` folder (the SQL in it is SQLite-specific), then run
-   `cd server && npx prisma migrate dev --name init` to create a fresh Postgres migration and seed it.
+### 1. Database
+Create a PostgreSQL database (Render PostgreSQL, Neon or Supabase) and copy its connection string.
+Neon and Supabase usually need `?sslmode=require` at the end.
+
+### 2. Server on Render
+New → **Web Service** → your repository. Leave **Root Directory** empty (the repo is an npm workspace).
+
+| Setting | Value |
+| ------- | ----- |
+| Build Command | `npm install --include=dev && npm run build:prod -w server` |
+| Start Command | `npm run start:prod -w server` (applies the database migrations, creates the admin, starts the API) |
+| Health Check Path | `/api/health` |
+
+Environment variables:
+
+| Name | Value |
+| ---- | ----- |
+| `NODE_VERSION` | `22` |
+| `NODE_ENV` | `production` |
+| `DATABASE_URL` | the PostgreSQL connection string |
+| `JWT_SECRET` | a long random string (`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`) |
+| `CLIENT_ORIGIN` | your Vercel address, for example `https://taskdesk.vercel.app` (see step 4) |
+| `TRUST_PROXY` | `1` |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | the first admin account. The password needs 12+ characters. Do not use the demo password |
+| `ADMIN_NAME` | optional |
+
+`PORT` is set by Render. The admin is only created if it does not exist, so a restart never resets a password.
+Check it: open `https://YOUR-SERVICE.onrender.com/api/health`. The API docs are at `/api/docs`.
+
+### 3. Client on Vercel
+Add New → **Project** → import the repository, and deploy **only the client**: set **Root Directory** to `client`
+(or, if the import screen lists `server` as a second project, remove it with its **x**). The Vite preset is detected:
+Build Command `npm run build`, Output Directory `dist`. Add the environment variable:
+
+| Name | Value |
+| ---- | ----- |
+| `VITE_API_URL` | `https://YOUR-SERVICE.onrender.com/api` (with `/api`, no slash at the end) |
+
+Also set Settings → General → Node.js Version to 22.x. `client/vercel.json` sends every address to `index.html`, so
+reloading `/employees` works. `VITE_API_URL` is read when the site is built: after changing it, redeploy.
+
+### 4. Connect them
+Set `CLIENT_ORIGIN` on Render to the exact Vercel address (comma-separate several, for example a custom domain),
+then let Render restart. Open the Vercel address and sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+Vercel preview deployments have other addresses, so the server refuses them unless they are listed too.
+
+### Things to know
+- Free Render services sleep after a while: the first request can take about a minute.
+- Free Render PostgreSQL databases expire after 30 days. Use a database that does not, for anything you keep.
+- Never run `npm run db:seed` against production: it deletes all employees and tasks.
+- Do not run `build:prod` on your own computer: it replaces your local Prisma client with the PostgreSQL one
+  (fix with `npx prisma generate` in `server/`).
+- When you change `schema.prisma`: run `npm run db:pg-schema -w server`, and add a PostgreSQL migration with
+  `npx prisma migrate dev --create-only --schema prisma/postgres/schema.prisma` against a local PostgreSQL.
+- The PostgreSQL migration has been checked by Prisma (`validate` and `migrate diff`) but was not run against a live
+  PostgreSQL in this project's tests.
 
 ## API endpoints
 
