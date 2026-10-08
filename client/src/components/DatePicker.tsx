@@ -10,6 +10,8 @@ type Props = {
   value: string;
   onChange: (value: string) => void;
   invalid?: boolean;
+  /** The earliest day that can be picked ("yyyy-mm-dd"). Earlier days are shown but cannot be chosen. */
+  min?: string;
 };
 
 const POPOVER_WIDTH = 288; // w-72
@@ -21,16 +23,18 @@ const monthTitle = (year: number, month: number) =>
 
 const navButton =
   'flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-raised hover:text-ink ' +
-  'focus-visible:outline-2 focus-visible:outline-accent';
+  'focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted';
 
 /** A text box for "yyyy-mm-dd" with a calendar popover beside it. Typing and picking both work. */
-export default function DatePicker({ id, value, onChange, invalid = false }: Props) {
+export default function DatePicker({ id, value, onChange, invalid = false, min }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const focusCell = useRef(false); // true when the keyboard moved the cursor, so the cell must take focus
   const selected = parseIso(value);
+  const minDay = min ? parseIso(min) : null;
+  const minIso = minDay ? toIso(minDay) : null;
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState<Day>(selected ?? today()); // the day the keyboard is on
   const [view, setView] = useState({ year: cursor.year, month: cursor.month }); // the month on screen
@@ -123,6 +127,9 @@ export default function DatePicker({ id, value, onChange, invalid = false }: Pro
 
   const now = today();
   const weeks = monthGrid(view.year, view.month);
+  // Going back is only possible while the month before still holds a day that can be picked.
+  const viewIndex = view.year * 12 + view.month;
+  const minIndex = minDay ? minDay.year * 12 + minDay.month : -Infinity;
   // Only one day is a tab stop; arrow keys move between days.
   const tabDay = cursor.year === view.year && cursor.month === view.month ? cursor.day : 1;
 
@@ -162,10 +169,22 @@ export default function DatePicker({ id, value, onChange, invalid = false }: Pro
           className="z-[60] w-72 max-w-[calc(100vw-1.5rem)] rounded-lg bg-surface p-3 shadow-pop ring-1 ring-line"
         >
           <div className="flex items-center justify-between gap-1">
-            <button type="button" aria-label="Previous year" onClick={() => moveView(-12)} className={navButton}>
+            <button
+              type="button"
+              aria-label="Previous year"
+              disabled={viewIndex - 12 < minIndex}
+              onClick={() => moveView(-12)}
+              className={navButton}
+            >
               <ChevronsLeft size={16} aria-hidden="true" />
             </button>
-            <button type="button" aria-label="Previous month" onClick={() => moveView(-1)} className={navButton}>
+            <button
+              type="button"
+              aria-label="Previous month"
+              disabled={viewIndex <= minIndex}
+              onClick={() => moveView(-1)}
+              className={navButton}
+            >
               <ChevronLeft size={16} aria-hidden="true" />
             </button>
             <p aria-live="polite" className="flex-1 text-center text-sm font-bold">
@@ -193,6 +212,8 @@ export default function DatePicker({ id, value, onChange, invalid = false }: Pro
               const date: Day = { year: view.year, month: view.month, day };
               const isSelected = selected !== null && sameDay(date, selected);
               const isToday = sameDay(date, now);
+              // Days before the minimum stay focusable (so arrow keys can pass over them) but do nothing.
+              const blocked = minIso !== null && toIso(date) < minIso;
               return (
                 <button
                   key={day}
@@ -200,12 +221,17 @@ export default function DatePicker({ id, value, onChange, invalid = false }: Pro
                   data-day={toIso(date)}
                   tabIndex={day === tabDay ? 0 : -1}
                   aria-pressed={isSelected}
+                  aria-disabled={blocked || undefined}
                   aria-current={isToday ? 'date' : undefined}
                   aria-label={`${day} ${monthTitle(view.year, view.month)}`}
-                  onClick={() => pick(date)}
+                  onClick={() => {
+                    if (!blocked) pick(date);
+                  }}
                   className={
                     'mx-auto flex h-9 w-9 items-center justify-center rounded-full text-sm transition focus-visible:outline-2 focus-visible:outline-accent ' +
-                    (isSelected
+                    (blocked
+                      ? 'text-muted line-through opacity-40 ' + (isSelected ? 'shadow-[inset_0_0_0_1px_var(--color-edge)]' : '')
+                      : isSelected
                       ? 'bg-accent font-bold text-white'
                       : isToday
                         ? 'font-bold text-accent shadow-[inset_0_0_0_1px_var(--color-accent)] hover:bg-raised'

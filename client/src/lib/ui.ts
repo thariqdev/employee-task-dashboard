@@ -31,9 +31,12 @@ export const alertClass = 'rounded-lg bg-danger-tint px-3 py-2 text-sm text-dang
 
 /** The table scrolls inside this box, so its sticky header stays visible. */
 export const tableWrapClass = 'overflow-auto rounded-lg bg-surface shadow-card md:max-h-[calc(100dvh-17rem)]';
-export const tableClass = 'w-full min-w-[40rem] text-xs sm:text-sm';
+// border-separate (not the default "collapse") so the sticky header sits flush: with collapse, a 1px gap can
+// open above it and let the text of rows that scrolled underneath show through as a bright line.
+export const tableClass = 'w-full min-w-[40rem] border-separate border-spacing-0 text-xs sm:text-sm';
 export const theadClass = 'text-left text-xs font-bold text-muted';
 export const thClass = 'sticky top-0 z-10 bg-surface px-3 py-2.5 shadow-[0_1px_0_var(--color-line)] sm:px-4 sm:py-3';
-export const tbodyClass = 'divide-y divide-line';
+// Row dividers are drawn on the cells, because rows cannot have borders in a border-separate table.
+export const tbodyClass = '[&>tr:last-child>td]:border-b-0 [&>tr>td]:border-b [&>tr>td]:border-line';
 export const trClass = 'transition-colors hover:bg-raised';
 export const tdClass = 'px-3 py-2 sm:px-4 sm:py-2.5';

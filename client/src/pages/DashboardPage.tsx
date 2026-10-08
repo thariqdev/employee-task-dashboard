@@ -1,10 +1,11 @@
 import { CheckCircle2, CircleDashed, ClipboardList, Loader, TriangleAlert, Users, type LucideIcon } from 'lucide-react';
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useEmployeeCount, useTaskSummary, type TaskSummary } from '../hooks/useDashboardSummary';
 import { useTasks } from '../hooks/useTasks';
 import { formatDueDate } from '../lib/dates';
-import { PoppedSlice, RestingSlice } from '../components/PoppedSlice';
+import { DonutSlice, HoveredSliceContext } from '../components/DonutSlice';
 import { Skeleton } from '../components/Skeleton';
 import { ghostButton } from '../lib/ui';
 
@@ -49,11 +50,17 @@ function SummaryCard({
 }
 
 function StatusChart({ summary }: { summary: TaskSummary }) {
-  const slices = [
-    { name: 'Pending', value: summary.pending, color: COLORS.pending },
-    { name: 'In progress', value: summary.inProgress, color: COLORS.progress },
-    { name: 'Completed', value: summary.completed, color: COLORS.done },
-  ];
+  // The same array between renders, so hovering a slice does not make the chart redraw itself.
+  const slices = useMemo(
+    () => [
+      { name: 'Pending', value: summary.pending, color: COLORS.pending },
+      { name: 'In progress', value: summary.inProgress, color: COLORS.progress },
+      { name: 'Completed', value: summary.completed, color: COLORS.done },
+    ],
+    [summary.pending, summary.inProgress, summary.completed],
+  );
+  const [hovered, setHovered] = useState<number | null>(null);
+  const hoveredSlice = hovered === null ? null : slices[hovered];
   const description = slices.map((s) => `${s.name}: ${s.value}`).join(', ');
 
   return (
@@ -64,33 +71,44 @@ function StatusChart({ summary }: { summary: TaskSummary }) {
       ) : (
         <div className="mt-2 flex flex-wrap items-center justify-center gap-6">
           <div role="img" aria-label={`Tasks by status. ${description}`} className="relative h-48 w-48">
-            <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 192, height: 192 }}>
-              <PieChart>
-                <Pie
-                  data={slices}
-                  dataKey="value"
-                  innerRadius={50}
-                  outerRadius={72}
-                  paddingAngle={2}
-                  stroke="none"
-                  activeShape={PoppedSlice}
-                  inactiveShape={RestingSlice}
-                >
-                  {slices.map((s) => (
-                    <Cell key={s.name} fill={s.color} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: '#ffffff' }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-xl font-bold sm:text-2xl">{summary.total}</span>
-              <span className="text-xs text-muted">in total</span>
+            <HoveredSliceContext.Provider value={hovered}>
+              <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 192, height: 192 }}>
+                <PieChart>
+                  <Pie
+                    data={slices}
+                    dataKey="value"
+                    innerRadius={50}
+                    outerRadius={72}
+                    paddingAngle={2}
+                    stroke="none"
+                    shape={DonutSlice}
+                    onMouseEnter={(_, index) => setHovered(index)}
+                    onMouseLeave={() => setHovered(null)}
+                  >
+                    {slices.map((s) => (
+                      <Cell key={s.name} fill={s.color} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </HoveredSliceContext.Provider>
+            {/* The middle shows the total, or the slice the pointer is on. */}
+            <div
+              data-testid="donut-center"
+              className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
+            >
+              <span className="text-xl font-bold sm:text-2xl">{hoveredSlice ? hoveredSlice.value : summary.total}</span>
+              <span className="text-xs text-muted">{hoveredSlice ? hoveredSlice.name : 'in total'}</span>
             </div>
           </div>
           <ul className="space-y-2 text-sm">
-            {slices.map((s) => (
-              <li key={s.name} className="flex items-center gap-2">
+            {slices.map((s, index) => (
+              <li
+                key={s.name}
+                onMouseEnter={() => setHovered(index)}
+                onMouseLeave={() => setHovered(null)}
+                className="flex items-center gap-2"
+              >
                 <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />
                 {`${s.name}: ${s.value}`}
               </li>

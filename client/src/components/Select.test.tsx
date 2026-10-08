@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import Modal from './Modal';
 import Select from './Select';
 
 const OPTIONS = [
@@ -107,5 +108,39 @@ describe('Select', () => {
     const box = screen.getByRole('combobox', { name: 'Position' });
     expect(box).toHaveClass('w-full');
     expect(box).toHaveTextContent('Select a position');
+  });
+
+  it('draws its list on the page itself, not inside a dialog, and stays usable from there', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Modal title="Form" onClose={() => {}}>
+        <Select label="Status" value="" options={OPTIONS} onChange={onChange} />
+      </Modal>,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Status' }));
+
+    const list = screen.getByRole('listbox');
+    expect(screen.getByRole('dialog')).not.toContainElement(list);
+    expect(list.parentElement).toBe(document.body);
+    expect(list).toHaveStyle({ position: 'fixed' });
+
+    await user.click(screen.getByRole('option', { name: 'Completed' })); // a click out there is not "outside"
+    expect(onChange).toHaveBeenCalledWith('DONE');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('closes only the list, not the dialog, when Escape is pressed', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Modal title="Form" onClose={onClose}>
+        <Select label="Status" value="" options={OPTIONS} onChange={() => {}} />
+      </Modal>,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Status' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

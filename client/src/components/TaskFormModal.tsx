@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { useEmployeeOptions } from '../hooks/useEmployees';
 import { type Task, type TaskInput, useCreateTask, useUpdateTask } from '../hooks/useTasks';
 import { ApiError } from '../lib/api';
-import { parseIso } from '../lib/calendar';
+import { parseIso, toIso, today } from '../lib/calendar';
 import { endOfDayUtc, toDateInput } from '../lib/dates';
 import { PRIORITIES, PRIORITY_LABELS, STATUSES, STATUS_LABELS } from '../lib/taskLabels';
 import {
@@ -21,19 +21,28 @@ import Modal from './Modal';
 import Select from './Select';
 import { PriorityBars, StatusDot } from './TaskBadges';
 
-const taskSchema = z.object({
-  title: z.string().trim().min(1, 'Title is required').max(150, 'Title must be at most 150 characters'),
-  description: z.string().trim().max(2000, 'Description must be at most 2000 characters'),
-  priority: z.enum(PRIORITIES),
-  status: z.enum(STATUSES),
-  // "yyyy-mm-dd", typed or picked from the calendar
-  dueDate: z.string().superRefine((value, ctx) => {
-    if (value.trim() === '') ctx.addIssue({ code: 'custom', message: 'Due date is required' });
-    else if (!parseIso(value.trim())) ctx.addIssue({ code: 'custom', message: 'Enter a real date as yyyy-mm-dd' });
-  }),
-  assigneeId: z.number().int().positive().nullable(),
-});
-type TaskForm = z.infer<typeof taskSchema>;
+/**
+ * The rules for the form. A due date cannot be in the past, except that an existing task may keep the date it
+ * already has (`keepDate`), so an overdue task can still have its status or title changed.
+ */
+const makeTaskSchema = (keepDate: string | null) =>
+  z.object({
+    title: z.string().trim().min(1, 'Title is required').max(150, 'Title must be at most 150 characters'),
+    description: z.string().trim().max(2000, 'Description must be at most 2000 characters'),
+    priority: z.enum(PRIORITIES),
+    status: z.enum(STATUSES),
+    // "yyyy-mm-dd", typed or picked from the calendar
+    dueDate: z.string().superRefine((value, ctx) => {
+      const day = value.trim();
+      if (day === '') ctx.addIssue({ code: 'custom', message: 'Due date is required' });
+      else if (!parseIso(day)) ctx.addIssue({ code: 'custom', message: 'Enter a real date as yyyy-mm-dd' });
+      else if (day !== keepDate && day < toIso(today())) {
+        ctx.addIssue({ code: 'custom', message: 'The due date cannot be in the past' });
+      }
+    }),
+    assigneeId: z.number().int().positive().nullable(),
+  });
+type TaskForm = z.infer<ReturnType<typeof makeTaskSchema>>;
 type Field = keyof TaskForm;
 
 const FIELD_NAMES: readonly string[] = ['title', 'description', 'priority', 'status', 'dueDate', 'assigneeId'];
@@ -64,7 +73,7 @@ export default function TaskFormModal({ task, onClose }: Props) {
     setError,
     formState: { errors, isSubmitting },
   } = useForm<TaskForm>({
-    resolver: zodResolver(taskSchema),
+    resolver: zodResolver(makeTaskSchema(task ? toDateInput(task.dueDate) : null)),
     defaultValues: {
       title: task?.title ?? '',
       description: task?.description ?? '',
@@ -179,6 +188,7 @@ export default function TaskFormModal({ task, onClose }: Props) {
                   value={field.value}
                   onChange={field.onChange}
                   invalid={Boolean(errors.dueDate)}
+                  min={toIso(today())}
                 />
               )}
             />

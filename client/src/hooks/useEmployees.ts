@@ -16,7 +16,7 @@ export type EmployeeInput = Pick<Employee, 'name' | 'email' | 'position' | 'depa
 
 export const EMPLOYEES_KEY = ['employees'] as const;
 
-export type EmployeeSortField = 'name' | 'position' | 'department' | 'tasks';
+export type EmployeeSortField = 'name' | 'position' | 'department' | 'tasks' | 'createdAt';
 
 type ListParams = {
   search: string;
@@ -56,7 +56,8 @@ export function useCreateEmployee() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: EmployeeInput) => apiFetch<Employee>('/employees', { method: 'POST', body: input }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: EMPLOYEES_KEY }),
+    // Not awaited: the dialog closes as soon as the API says yes, and the table shows its own loader while it reloads.
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: EMPLOYEES_KEY }),
   });
 }
 
@@ -65,7 +66,7 @@ export function useUpdateEmployee() {
   return useMutation({
     mutationFn: ({ id, input }: { id: number; input: EmployeeInput }) =>
       apiFetch<Employee>(`/employees/${id}`, { method: 'PATCH', body: input }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: EMPLOYEES_KEY }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: EMPLOYEES_KEY }),
   });
 }
 
@@ -74,10 +75,9 @@ export function useDeleteEmployee() {
   return useMutation({
     mutationFn: (id: number) =>
       apiFetch<{ id: number; unassignedTasks: number }>(`/employees/${id}`, { method: 'DELETE' }),
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: EMPLOYEES_KEY }),
-        queryClient.invalidateQueries({ queryKey: ['tasks'] }), // their tasks just became unassigned
-      ]),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: EMPLOYEES_KEY });
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] }); // their tasks just became unassigned
+    },
   });
 }

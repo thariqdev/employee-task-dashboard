@@ -466,6 +466,55 @@ describe('TasksPage: adding and editing', () => {
     expect(api.taskCalls().find((c) => c.method === 'POST')!.body).toMatchObject({ assigneeId: null });
   });
 
+  it('refuses a due date in the past, and sends nothing', async () => {
+    const api = fakeApi([]);
+    renderPage();
+    const dialog = await openAddForm();
+    await userEvent.type(within(dialog).getByLabelText('Title'), 'Too late');
+    fireEvent.change(within(dialog).getByLabelText('Due date'), { target: { value: '2020-01-01' } });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add task' }));
+
+    expect(await within(dialog).findByText('The due date cannot be in the past')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Due date')).toHaveAttribute('aria-invalid', 'true');
+    expect(api.taskCalls().some((c) => c.method === 'POST')).toBe(false);
+  });
+
+  it('accepts today as a due date', async () => {
+    const api = fakeApi([]);
+    renderPage();
+    const dialog = await openAddForm();
+    const now = new Date();
+    const todayIso = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
+    await userEvent.type(within(dialog).getByLabelText('Title'), 'Due today');
+    fireEvent.change(within(dialog).getByLabelText('Due date'), { target: { value: todayIso } });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add task' }));
+
+    await waitFor(() => expect(api.taskCalls().some((c) => c.method === 'POST')).toBe(true));
+  });
+
+  it('lets an overdue task keep its old due date while something else is edited, but not be moved to another past date', async () => {
+    const overdue = task(1, { isOverdue: true, dueDate: '2020-01-01T23:59:59.000Z' });
+    const api = fakeApi([overdue]);
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Task 01' }));
+    let dialog = screen.getByRole('dialog', { name: 'Edit task' });
+
+    // Another past date is refused...
+    fireEvent.change(within(dialog).getByLabelText('Due date'), { target: { value: '2020-02-02' } });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    expect(await within(dialog).findByText('The due date cannot be in the past')).toBeInTheDocument();
+    expect(api.taskCalls().some((c) => c.method === 'PATCH')).toBe(false);
+
+    // ...but putting back the original, and changing the status, is fine.
+    fireEvent.change(within(dialog).getByLabelText('Due date'), { target: { value: '2020-01-01' } });
+    await pickIn(dialog, 'Status', 'Completed');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    const patch = api.taskCalls().find((c) => c.method === 'PATCH')!;
+    expect(patch.body).toMatchObject({ status: 'COMPLETED', dueDate: '2020-01-01T23:59:59.000Z' });
+  });
+
   it('edits a task: the form starts filled in, and an unchanged due date and assignee are kept as they were', async () => {
     const original = task(1, { ...assignedTo(2), priority: 'HIGH', dueDate: '2099-03-05T17:00:00.000Z' });
     const api = fakeApi([original]);

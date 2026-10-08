@@ -1,5 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setToken } from '../lib/auth';
@@ -110,6 +111,19 @@ describe('DashboardPage', () => {
     fakeApi({ employees: 1, tasks: { ALL: 2, PENDING: 2, IN_PROGRESS: 0, COMPLETED: 0, overdue: 0 } });
     renderPage();
     expect(await screen.findByText('Nothing is overdue.')).toBeInTheDocument();
+  });
+
+  it('shows the hovered status in the middle of the donut, and the total again afterwards', async () => {
+    fakeApi({ employees: 1, tasks: { ALL: 20, PENDING: 8, IN_PROGRESS: 5, COMPLETED: 7, overdue: 3 } });
+    renderPage();
+    const center = await screen.findByTestId('donut-center');
+    expect(center).toHaveTextContent('20in total');
+
+    await userEvent.hover(screen.getByText('Completed: 7'));
+    expect(center).toHaveTextContent('7Completed');
+
+    await userEvent.unhover(screen.getByText('Completed: 7'));
+    expect(center).toHaveTextContent('20in total');
   });
 
   it('describes the charts in words for screen readers', async () => {

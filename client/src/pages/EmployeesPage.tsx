@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SearchX, Users } from 'lucide-react';
+import { SearchX, Users, X } from 'lucide-react';
 import Avatar from '../components/Avatar';
 import ConfirmDeleteEmployeeModal from '../components/ConfirmDeleteEmployeeModal';
 import EmployeeFormModal from '../components/EmployeeFormModal';
@@ -48,6 +48,12 @@ export default function EmployeesPage() {
     if (totalPages !== undefined && page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
+  // A new employee goes to the top of the list, so the admin sees that the add worked.
+  function showNewestFirst() {
+    setSorting({ sort: 'createdAt', order: 'desc' });
+    setPage(1);
+  }
+
   function sortBy(field: EmployeeSortField) {
     setSorting((current) => nextSort(current, field));
     setPage(1);
@@ -69,21 +75,37 @@ export default function EmployeesPage() {
         </button>
       </div>
 
-      <div className="mt-4">
-        <label htmlFor="employee-search" className="sr-only">
-          Search employees
-        </label>
-        <input
-          id="employee-search"
-          type="search"
-          placeholder="Search by name or email"
-          value={searchInput}
-          onChange={(event) => {
-            setSearchInput(event.target.value);
-            setPage(1);
-          }}
-          className={`${filterClass} block w-full max-w-sm`}
-        />
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="w-full max-w-sm">
+          <label htmlFor="employee-search" className="sr-only">
+            Search employees
+          </label>
+          <input
+            id="employee-search"
+            type="search"
+            placeholder="Search by name or email"
+            value={searchInput}
+            onChange={(event) => {
+              setSearchInput(event.target.value);
+              setPage(1);
+            }}
+            className={`${filterClass} block w-full`}
+          />
+        </div>
+        {sorting.sort === 'createdAt' && (
+          <button
+            type="button"
+            aria-label="Sorted newest first. Click to sort by name"
+            onClick={() => {
+              setSorting({ sort: 'name', order: 'asc' });
+              setPage(1);
+            }}
+            className={`${ghostButton} inline-flex items-center gap-1.5`}
+          >
+            Newest first
+            <X size={14} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       <div className="relative mt-4">
@@ -167,7 +189,11 @@ export default function EmployeesPage() {
       {meta && meta.total > 0 && <Pagination meta={meta} onPage={setPage} />}
 
       {editing && (
-        <EmployeeFormModal employee={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+        <EmployeeFormModal
+          employee={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onCreated={showNewestFirst}
+        />
       )}
       {deleting && <ConfirmDeleteEmployeeModal employee={deleting} onClose={() => setDeleting(null)} />}
     </section>

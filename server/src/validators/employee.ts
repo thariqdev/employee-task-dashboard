@@ -18,8 +18,8 @@ export const employeeIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
-/** The columns an employee list can be sorted by. "tasks" is the number of tasks they have. */
-export const EMPLOYEE_SORT_FIELDS = ['name', 'position', 'department', 'tasks'] as const;
+/** The columns an employee list can be sorted by. "tasks" is the number of tasks they have, "createdAt" is when they were added. */
+export const EMPLOYEE_SORT_FIELDS = ['name', 'position', 'department', 'tasks', 'createdAt'] as const;
 
 export const listEmployeesQuerySchema = z.object({
   search: z.string().trim().optional(),

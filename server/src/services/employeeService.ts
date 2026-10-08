@@ -36,7 +36,7 @@ export async function listEmployees({ search, department, sort, order, page, pag
 
   const skip = (page - 1) * pageSize;
 
-  // Name and number of tasks are plain database sorts. Position and department are sorted in memory,
+  // Name, number of tasks and date added are plain database sorts. Position and department are sorted in memory,
   // ignoring case, because people type those in ("legal" must not sort after "Support").
   let total: number;
   let employees: EmployeeWithCount[];
@@ -57,7 +57,10 @@ export async function listEmployees({ search, department, sort, order, page, pag
       prisma.employee.findMany({
         where,
         include: withTaskCount,
-        orderBy: [sort === 'tasks' ? { tasks: { _count: order } } : { name: order }, { name: 'asc' }, { id: 'asc' }],
+        orderBy:
+          sort === 'createdAt'
+            ? [{ createdAt: order }, { id: order }] // same direction, so the newest really is first
+            : [sort === 'tasks' ? { tasks: { _count: order } } : { name: order }, { name: 'asc' }, { id: 'asc' }],
         skip,
         take: pageSize,
       }),

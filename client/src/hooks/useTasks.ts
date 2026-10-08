@@ -70,11 +70,11 @@ export function useTasks(params: ListParams) {
 /** After any change to tasks, refetch the task lists and the employee lists (their task counts change). */
 function useRefreshAfterChange() {
   const queryClient = useQueryClient();
-  return () =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: TASKS_KEY }),
-      queryClient.invalidateQueries({ queryKey: EMPLOYEES_KEY }),
-    ]);
+  // Not awaited: the dialog closes as soon as the API says yes, and the table shows its own loader while it reloads.
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: TASKS_KEY });
+    void queryClient.invalidateQueries({ queryKey: EMPLOYEES_KEY });
+  };
 }
 
 export function useCreateTask() {

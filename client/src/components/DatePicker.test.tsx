@@ -118,6 +118,66 @@ describe('DatePicker', () => {
     expect(calendar).toHaveStyle({ position: 'fixed' });
   });
 
+  describe('with a minimum day', () => {
+    function MinHarness() {
+      const [value, setValue] = useState('2026-10-10');
+      return (
+        <Modal title="Form" onClose={() => {}}>
+          <label htmlFor="due">Due date</label>
+          <DatePicker id="due" value={value} onChange={setValue} min="2026-10-07" />
+        </Modal>
+      );
+    }
+
+    it('shows earlier days as unavailable, and ignores a click on one', async () => {
+      const user = userEvent.setup();
+      render(<MinHarness />);
+      await openCalendar(user);
+
+      expect(screen.getByRole('button', { name: '6 October 2026' })).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getByRole('button', { name: '1 October 2026' })).toHaveAttribute('aria-disabled', 'true');
+      await user.click(screen.getByRole('button', { name: '3 October 2026' }));
+      expect(screen.getByLabelText('Due date')).toHaveValue('2026-10-10'); // unchanged
+      expect(screen.getByRole('group', { name: 'Calendar' })).toBeInTheDocument(); // and still open
+    });
+
+    it('allows the minimum day itself and every day after it', async () => {
+      const user = userEvent.setup();
+      render(<MinHarness />);
+      await openCalendar(user);
+      expect(screen.getByRole('button', { name: '7 October 2026' })).not.toHaveAttribute('aria-disabled');
+      expect(screen.getByRole('button', { name: '8 October 2026' })).not.toHaveAttribute('aria-disabled');
+
+      await user.click(screen.getByRole('button', { name: '7 October 2026' }));
+      expect(screen.getByLabelText('Due date')).toHaveValue('2026-10-07');
+    });
+
+    it('cannot go back to months that hold no available day, but can go forward', async () => {
+      const user = userEvent.setup();
+      render(<MinHarness />);
+      await openCalendar(user);
+      expect(screen.getByRole('button', { name: 'Previous month' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Previous year' })).toBeDisabled();
+
+      await user.click(screen.getByRole('button', { name: 'Next month' }));
+      expect(screen.getByText('November 2026')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Previous month' })).toBeEnabled(); // back to October is fine
+      expect(screen.getByRole('button', { name: '1 November 2026' })).not.toHaveAttribute('aria-disabled');
+    });
+
+    it('lets the arrow keys pass over an unavailable day, but Enter on it picks nothing', async () => {
+      const user = userEvent.setup();
+      render(<MinHarness />);
+      await openCalendar(user);
+      screen.getByRole('button', { name: '10 October 2026' }).focus();
+
+      await user.keyboard('{ArrowUp}'); // 3 October: before the minimum
+      expect(screen.getByRole('button', { name: '3 October 2026' })).toHaveFocus();
+      await user.keyboard('{Enter}');
+      expect(screen.getByLabelText('Due date')).toHaveValue('2026-10-10');
+    });
+  });
+
   it('closes when the user clicks somewhere else', async () => {
     const user = userEvent.setup();
     render(<Harness />);

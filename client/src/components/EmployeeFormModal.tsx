@@ -55,11 +55,13 @@ type Props = {
   /** The employee being edited, or null to add a new one. */
   employee: Employee | null;
   onClose: () => void;
+  /** Called once a new employee has been saved (not after an edit). */
+  onCreated?: () => void;
 };
 
 const labelClass = 'block text-sm font-medium';
 
-export default function EmployeeFormModal({ employee, onClose }: Props) {
+export default function EmployeeFormModal({ employee, onClose, onCreated }: Props) {
   const create = useCreateEmployee();
   const update = useUpdateEmployee();
   const [formError, setFormError] = useState<string | null>(null);
@@ -97,7 +99,10 @@ export default function EmployeeFormModal({ employee, onClose }: Props) {
     };
     try {
       if (employee) await update.mutateAsync({ id: employee.id, input });
-      else await create.mutateAsync(input);
+      else {
+        await create.mutateAsync(input);
+        onCreated?.();
+      }
       onClose();
     } catch (err) {
       if (!(err instanceof ApiError)) return setFormError('Something went wrong');

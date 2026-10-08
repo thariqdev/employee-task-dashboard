@@ -1,5 +1,9 @@
 import { Check, ChevronDown } from 'lucide-react';
-import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+const GAP = 8; // space between the control and the list, and to the screen edge
+const MAX_LIST_HEIGHT = 256; // 16rem
 
 export type SelectOption = {
   value: string;
@@ -39,6 +43,8 @@ export default function Select({
 }: SelectProps) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const [place, setPlace] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const [open, setOpen] = useState(false);
   const foundIndex = options.findIndex((o) => o.value === value);
   // With a placeholder, "nothing chosen" is a real state (-1). Without one, the first option stands in.
@@ -51,11 +57,39 @@ export default function Select({
   useEffect(() => {
     if (!open) return;
     const onMouseDown = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!root.current?.contains(target) && !list.current?.contains(target)) setOpen(false);
     };
     document.addEventListener('mousedown', onMouseDown);
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const position = () => {
+      const box = root.current?.getBoundingClientRect();
+      if (!box) return;
+      const wanted = Math.min(list.current?.scrollHeight ?? MAX_LIST_HEIGHT, MAX_LIST_HEIGHT);
+      const roomBelow = window.innerHeight - box.bottom - GAP * 2;
+      const roomAbove = box.top - GAP * 2;
+      const above = wanted > roomBelow && roomAbove > roomBelow;
+      const maxHeight = Math.max(96, Math.min(MAX_LIST_HEIGHT, above ? roomAbove : roomBelow));
+      const height = Math.min(wanted, maxHeight);
+      setPlace({
+        top: above ? box.top - GAP - height : box.bottom + GAP,
+        left: Math.min(Math.max(GAP, box.left), Math.max(GAP, window.innerWidth - box.width - GAP)),
+        width: box.width,
+        maxHeight,
+      });
+    };
+    position();
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true); // also when the dialog scrolls
+    return () => {
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+    };
+  }, [open, options.length]);
 
   function openList() {
     setHighlighted(Math.max(0, selectedIndex));
@@ -151,12 +185,22 @@ export default function Select({
         />
       </button>
 
-      {open && (
+      {open &&
+        createPortal(
         <ul
+          ref={list}
           id={`${id}-list`}
           role="listbox"
           aria-label={label}
-          className={`absolute left-0 z-30 mt-2 max-h-64 min-w-full overflow-auto rounded-lg bg-surface p-1 shadow-pop ring-1 ring-line ${field ? 'right-0' : ''}`}
+          style={{
+            position: 'fixed',
+            top: place?.top ?? 0,
+            left: place?.left ?? 0,
+            minWidth: place?.width,
+            maxHeight: place?.maxHeight ?? MAX_LIST_HEIGHT,
+            visibility: place ? 'visible' : 'hidden',
+          }}
+          className="z-[60] overflow-auto rounded-lg bg-surface p-1 shadow-pop ring-1 ring-line"
         >
           {options.map((option, index) => {
             const selected = index === selectedIndex;
@@ -186,7 +230,8 @@ export default function Select({
               </li>
             );
           })}
-        </ul>
+        </ul>,
+        document.body,
       )}
     </div>
   );

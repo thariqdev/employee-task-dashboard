@@ -57,9 +57,13 @@ function fakeApi(initial: Employee[]) {
         const search = (url.searchParams.get('search') ?? '').toLowerCase();
         const page = Number(url.searchParams.get('page'));
         const pageSize = Number(url.searchParams.get('pageSize'));
-        const matching = rows.filter(
+        let matching = rows.filter(
           (r) => r.name.toLowerCase().includes(search) || r.email.toLowerCase().includes(search),
         );
+        // Rows are kept in the order they were created, so "newest first" is simply the reverse.
+        if (url.searchParams.get('sort') === 'createdAt' && url.searchParams.get('order') === 'desc') {
+          matching = [...matching].reverse();
+        }
         return reply(200, {
           data: matching.slice((page - 1) * pageSize, page * pageSize),
           meta: { page, pageSize, total: matching.length, totalPages: Math.max(1, Math.ceil(matching.length / pageSize)) },
@@ -269,6 +273,61 @@ describe('EmployeesPage: adding and editing', () => {
       position: 'Product Designer',
       department: 'Design',
     });
+  });
+
+  it('closes the dialog when the API says yes, shows the loader while the list reloads, then lists the new employee first', async () => {
+    const api = fakeApi([person(1), person(2)]);
+    renderPage();
+    await screen.findByText('Person 01');
+    const dialog = await openAddForm();
+    await fillForm(dialog, { Name: 'Nia Park', Email: 'nia@example.com' });
+    await pick(dialog, 'Position', 'Product Designer');
+    await pick(dialog, 'Department', 'Design');
+
+    const release = api.holdGets(); // the reload that follows the save will wait
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add employee' }));
+
+    // The save went through, so the dialog is gone; the table is still showing the old list, under a loader.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(await screen.findByText('Refreshing...')).toBeInTheDocument();
+    expect(screen.queryByText('Nia Park')).not.toBeInTheDocument();
+
+    release();
+    await waitFor(() => expect(screen.queryByText('Refreshing...')).not.toBeInTheDocument());
+    expect(within(rows()[0]!).getByText('Nia Park')).toBeInTheDocument(); // first row
+    expect(api.calls.at(-1)!.url.searchParams.get('sort')).toBe('createdAt');
+    expect(api.calls.at(-1)!.url.searchParams.get('order')).toBe('desc');
+  });
+
+  it('shows a "Newest first" chip after adding, and it takes the user back to the name order', async () => {
+    fakeApi([person(1)]);
+    renderPage();
+    await screen.findByText('Person 01');
+    expect(screen.queryByRole('button', { name: /newest first/i })).not.toBeInTheDocument();
+
+    const dialog = await openAddForm();
+    await fillForm(dialog, { Name: 'Nia Park', Email: 'nia@example.com' });
+    await pick(dialog, 'Position', 'Product Designer');
+    await pick(dialog, 'Department', 'Design');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add employee' }));
+    const chip = await screen.findByRole('button', { name: /newest first/i });
+
+    await userEvent.click(chip);
+    // (The name-order list may come from the cache, so no new request is needed to prove it.)
+    expect(screen.queryByRole('button', { name: /newest first/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Name/ })).toHaveAttribute('aria-sort', 'ascending');
+  });
+
+  it('does not change the order after an edit', async () => {
+    fakeApi([person(1)]);
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit Person 01' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit employee' });
+    await fillForm(dialog, { 'Other position': 'Team Lead' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    await screen.findByText('Team Lead');
+    expect(screen.queryByRole('button', { name: /newest first/i })).not.toBeInTheDocument();
   });
 
   it('puts the "email already exists" message next to the email field and keeps the dialog open', async () => {

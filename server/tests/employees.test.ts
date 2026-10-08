@@ -156,6 +156,12 @@ describe('employees API: sorting', () => {
     expect(await namesOf('sort=department')).toEqual(['Abe', 'Dan', 'Eve', 'Cara']);
   });
 
+  it('sorts by when they were added, newest first or oldest first', async () => {
+    // Created in this order in beforeEach: Cara, Abe, Dan, Eve.
+    expect(await namesOf('sort=createdAt&order=desc')).toEqual(['Eve', 'Dan', 'Abe', 'Cara']);
+    expect(await namesOf('sort=createdAt&order=asc')).toEqual(['Cara', 'Abe', 'Dan', 'Eve']);
+  });
+
   it('keeps pages consistent when sorted', async () => {
     const first = await namesOf('sort=department&pageSize=3&page=1');
     const second = await namesOf('sort=department&pageSize=3&page=2');
